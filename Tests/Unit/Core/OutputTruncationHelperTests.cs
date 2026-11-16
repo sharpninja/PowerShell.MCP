@@ -6,15 +6,26 @@ namespace PowerShell.MCP.Tests.Unit.Core;
 public class OutputTruncationHelperTests : IDisposable
 {
     private readonly string _testDir;
+    private readonly string? _savedTruncationThreshold;
 
     public OutputTruncationHelperTests()
     {
+        _savedTruncationThreshold = Environment.GetEnvironmentVariable(
+            OutputTruncationHelper.TruncationThresholdEnvironmentVariable);
+        Environment.SetEnvironmentVariable(
+            OutputTruncationHelper.TruncationThresholdEnvironmentVariable,
+            null);
+
         _testDir = Path.Combine(Path.GetTempPath(), $"OutputTruncationHelperTests_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_testDir);
     }
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable(
+            OutputTruncationHelper.TruncationThresholdEnvironmentVariable,
+            _savedTruncationThreshold);
+
         try { Directory.Delete(_testDir, recursive: true); }
         catch { /* best-effort cleanup */ }
     }
@@ -57,6 +68,60 @@ public class OutputTruncationHelperTests : IDisposable
         var output = new string('B', OutputTruncationHelper.TruncationThreshold);
         var result = OutputTruncationHelper.TruncateIfNeeded(output, _testDir);
         Assert.Equal(output, result);
+    }
+
+    [Theory]
+    [InlineData("3001", 3001)]
+    [InlineData("2097152", 2_097_152)]
+    public void ResolveTruncationThreshold_ValidEnvironmentValue_ReturnsConfiguredValue(
+        string value,
+        int expected)
+    {
+        Assert.Equal(expected, OutputTruncationHelper.ResolveTruncationThreshold(value));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("not-a-number")]
+    [InlineData("-1")]
+    [InlineData("0")]
+    [InlineData("3000")]
+    [InlineData("2147483648")]
+    public void ResolveTruncationThreshold_InvalidEnvironmentValue_ReturnsDefault(string? value)
+    {
+        Assert.Equal(
+            OutputTruncationHelper.DefaultTruncationThreshold,
+            OutputTruncationHelper.ResolveTruncationThreshold(value));
+    }
+
+    [Fact]
+    public void TruncateIfNeeded_EnvironmentThresholdAboveDefault_ReturnsOutputUnchanged()
+    {
+        Environment.SetEnvironmentVariable(
+            OutputTruncationHelper.TruncationThresholdEnvironmentVariable,
+            "2097152");
+        var output = new string('E', OutputTruncationHelper.DefaultTruncationThreshold + 1);
+
+        var result = OutputTruncationHelper.TruncateIfNeeded(output, _testDir);
+
+        Assert.Equal(output, result);
+        Assert.Empty(Directory.GetFiles(_testDir, "pwsh_output_*.txt"));
+    }
+
+    [Fact]
+    public void TruncateIfNeeded_EnvironmentThresholdAbovePreviewSize_TruncatesAtConfiguredValue()
+    {
+        Environment.SetEnvironmentVariable(
+            OutputTruncationHelper.TruncationThresholdEnvironmentVariable,
+            "4000");
+        var output = new string('E', 4001);
+
+        var result = OutputTruncationHelper.TruncateIfNeeded(output, _testDir);
+
+        Assert.Contains("Output too large (4001 characters).", result);
+        Assert.Single(Directory.GetFiles(_testDir, "pwsh_output_*.txt"));
     }
 
     [Fact]

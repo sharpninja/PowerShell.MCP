@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 
 namespace PowerShell.MCP;
 
@@ -6,11 +7,26 @@ namespace PowerShell.MCP;
 /// Truncates large command output to preserve AI context window budget.
 /// Saves the full output to a temp file so the AI can retrieve it via Read tool if needed.
 /// </summary>
+/// <remarks>
+/// <para>Change log:</para>
+/// <para>2026-11-16: Added a validated environment-variable override for the output
+/// truncation threshold at the operator's request. This repository has no canonical
+/// requirement or acceptance-criterion ID for the change.</para>
+/// </remarks>
 public static class OutputTruncationHelper
 {
-    internal const int TruncationThreshold = 15_000;
+    internal const string TruncationThresholdEnvironmentVariable =
+        "POWERSHELL_MCP_OUTPUT_TRUNCATION_THRESHOLD";
+    internal const int DefaultTruncationThreshold = 15_000;
     internal const int PreviewHeadSize = 1000;
     internal const int PreviewTailSize = 2000;
+
+    /// <summary>
+    /// Gets the active character-count threshold from the process environment, falling
+    /// back to <see cref="DefaultTruncationThreshold"/> when the override is absent or invalid.
+    /// </summary>
+    internal static int TruncationThreshold => ResolveTruncationThreshold(
+        Environment.GetEnvironmentVariable(TruncationThresholdEnvironmentVariable));
 
     // The threshold must exceed the combined preview sizes; otherwise the head
     // and tail slices overlap, producing duplicated content in the preview.
@@ -18,8 +34,8 @@ public static class OutputTruncationHelper
     private static bool Validate()
     {
         Debug.Assert(
-            TruncationThreshold > PreviewHeadSize + PreviewTailSize,
-            $"TruncationThreshold ({TruncationThreshold}) must be greater than " +
+            DefaultTruncationThreshold > PreviewHeadSize + PreviewTailSize,
+            $"DefaultTruncationThreshold ({DefaultTruncationThreshold}) must be greater than " +
             $"PreviewHeadSize + PreviewTailSize ({PreviewHeadSize + PreviewTailSize}) " +
             "to avoid overlapping head/tail previews.");
         return true;
@@ -27,6 +43,22 @@ public static class OutputTruncationHelper
     internal const string OutputDirectoryName = "PowerShell.MCP.Output";
     internal const int MaxFileAgeMinutes = 120;
     internal const int NewlineScanLimit = 200;
+
+    /// <summary>
+    /// Resolves an optional character-count override for the truncation threshold.
+    /// </summary>
+    /// <param name="value">The environment-variable value to validate.</param>
+    /// <returns>
+    /// The configured threshold when it is an invariant integer larger than the combined
+    /// preview sizes; otherwise, <see cref="DefaultTruncationThreshold"/>.
+    /// </returns>
+    internal static int ResolveTruncationThreshold(string? value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var threshold)
+            && threshold > PreviewHeadSize + PreviewTailSize
+                ? threshold
+                : DefaultTruncationThreshold;
+    }
 
     /// <summary>
     /// Returns the output unchanged if within threshold, otherwise saves the full content

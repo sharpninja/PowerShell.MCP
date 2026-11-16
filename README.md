@@ -335,6 +335,19 @@ Each MCP client session runs its own proxy, and a proxy sees only the consoles i
 
 Set these as **user or system environment variables** (Windows: System Properties → Environment Variables, or `setx`; macOS / Linux: your login shell's profile), not in your MCP client's `env` block. Each console is a new terminal window rather than a child of the proxy, so a variable set only for the proxy generally does not reach it.
 
+### Output truncation threshold
+
+Command output longer than 15,000 characters is saved to a temporary file and represented by a head-and-tail preview. Set `POWERSHELL_MCP_OUTPUT_TRUNCATION_THRESHOLD` to a larger character count to change that threshold. The value must be an integer greater than 3,000, which is the combined size of the two previews. Unset, malformed, overflowed, or too-small values use the 15,000-character default.
+
+Set this as a **user or system environment variable**, because the PowerShell console process reads it. New consoles inherit the setting. For example, 2 Mi characters is:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    'POWERSHELL_MCP_OUTPUT_TRUNCATION_THRESHOLD',
+    '2097152',
+    'User')
+```
+
 ### Timeout ceiling
 
 A blocking call is capped to what your MCP client will actually wait for: **170 seconds for Claude Code** and **50 seconds for any other client**. Nothing is lost when the cap is reached: the command keeps running, and its result arrives with the next tool call. If your client waits longer than 50 seconds, raise the cap with `POWERSHELL_MCP_TIMEOUT_CEILING` (seconds, at most 170). This one is read by the proxy, so set it in your MCP client's `env` block:
